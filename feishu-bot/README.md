@@ -56,18 +56,50 @@ python main.py
 | `/safe` | 安全模式：只读 + 文件编辑，禁止 Bash |
 | `/unsafe` | 标准模式（**默认**）：允许 Bash |
 | `/full` | 完整模式：允许所有工具 |
-| `/new` | 重置会话，清空上下文 |
+| `/new` | 重置当前会话，清空上下文 |
+| `/sessions` | 列出本机**所有** Claude Code 会话（磁盘扫描） |
+| `/switch <id>` | 切换到指定会话（支持跨项目目录） |
 | `/status` | 查看当前会话状态 |
 | `/help` | 显示帮助 |
 
+### 会话管理
+
+`/sessions` 扫描 `~/.claude/projects/` 下所有 Claude Code 会话，显示：
+
+```
+📋 所有 Claude Code 会话 (20 个)
+
+   cf5bb7a7 5m 1923KB #408轮 [/root/桌面/feishu]
+      # 基础开发 /plugin install code-review@claude-plugins-official
+🔗 5afae8e9 31m 126KB #32轮 [/root/桌面/feishu/feishu-bot]
+     列出之前的会话
+  f85117c7 2d 256KB #50轮 [/root/桌面]
+     帮我写一个 Nginx 配置
+```
+
+- `🔗` 表示已关联到当前飞书群聊
+- `/switch f85117c7` 可以恢复 2 天前在 `/root/桌面` 目录下的会话
+- 切换后自动定位到原会话的工作目录，保证 `--resume` 正确
+
+## 日志
+
+日志同时输出到**终端**和**文件**：
+
+```
+feishu-bot/logs/bot.log
+```
+
+| 图标 | 含义 | 级别 |
+|------|------|------|
+| 👤 | 用户消息 | INFO |
+| 🔧 | 工具调用及参数 | INFO |
+| ❌ | 工具被阻止或失败 | WARNING |
+| 💭 | Claude 思考过程 | DEBUG |
+| 🤖 | Claude 回复 | INFO |
+
 ## 本地监控面板
 
-浏览器打开 `http://localhost:8080`，实时查看：
-
-- 👤 用户消息
-- 💭 Claude 思考过程
-- 🔧 工具调用及参数
-- ✅/❌ 工具执行结果
+浏览器打开 `http://localhost:8080`，实时查看完整的思考过程、工具调用和对话记录。
 
 ## 配置项（.env）
 

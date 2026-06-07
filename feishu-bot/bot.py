@@ -28,6 +28,8 @@ HELP_TEXT = """**📋 命令**
 • `/unsafe` — 标准模式（允许 Bash，**默认**）
 • `/full` — 完整模式（允许所有工具）
 • `/new` — 重置会话
+• `/sessions` — 列出所有会话
+• `/switch <id>` — 切换到指定会话
 • `/status` — 查看状态"""
 
 
@@ -42,7 +44,8 @@ class FeishuBot:
                 "session_id": str(uuid.uuid4()),
                 "turn": 0,
                 "is_first": True,
-                "perm_level": "unsafe",  # 默认标准模式
+                "perm_level": "unsafe",
+                "cwd": None,  # None = 使用当前目录
             }
         return self.sessions[chat_id]
 
@@ -86,6 +89,7 @@ class FeishuBot:
             result, new_sid = await claude.run(
                 text, sess["session_id"], sess["is_first"],
                 perm_level=sess["perm_level"], chat_id=chat_id,
+                cwd=sess.get("cwd"),
             )
             sess["session_id"] = new_sid
             sess["is_first"] = False
@@ -125,6 +129,59 @@ class FeishuBot:
                     f"**会话**: `{sess['session_id'][:16]}...`")
             else:
                 _reply(msg_id, "ℹ️ 无活跃会话")
+
+        elif cmd == "/sessions":
+            disk_sessions = claude.list_sessions()
+            if not disk_sessions:
+                _reply(msg_id, "ℹ️ 磁盘上暂无 Claude Code 会话")
+                return
+
+            tracked_sids = {s["session_id"] for s in self.sessions.values()}
+            lines = [f"**📋 所有 Claude Code 会话 ({len(disk_sessions)} 个)**\n"]
+            for s in disk_sessions:
+                tracked = "🔗" if s["sid"] in tracked_sids else "  "
+                lines.append(
+                    f"{tracked} `{s['short_id']}` {s['age']} {s['size_kb']}KB "
+                    f"#{s['turns']}轮 [{s['cwd']}]\n"
+                    f"     _{s['title'][:60]}_"
+                )
+            _reply(msg_id, "\n".join(lines))
+
+        elif cmd.startswith("/switch "):
+            target = cmd.split(" ", 1)[1].strip()
+            matched_sid = None
+
+            # 1. 先查内存中的活跃会话
+            for cid, s in self.sessions.items():
+                if cid.endswith(target):
+                    matched_sid = s["session_id"]
+                    break
+
+            # 2. 再查磁盘上的所有会话
+            matched_cwd = None
+            if matched_sid is None:
+                for s in claude.list_sessions():
+                    if s["sid"].startswith(target) or s["short_id"] == target:
+                        matched_sid = s["sid"]
+                        matched_cwd = s["cwd"]
+                        break
+
+            if matched_sid is None:
+                _reply(msg_id, f"❌ 未找到匹配 `{target}` 的会话。用 `/sessions` 查看所有会话。")
+                return
+
+            # 创建/更新当前 chat 的会话，指向目标 session_id
+            sess = self._get_sess(chat_id)
+            sess["session_id"] = matched_sid
+            sess["is_first"] = False
+            sess["turn"] = 0
+            if matched_cwd:
+                sess["cwd"] = matched_cwd
+
+            cwd_info = f"\n📁 `{matched_cwd}`" if matched_cwd else ""
+            _reply(msg_id,
+                f"✅ 已切换到 `{matched_sid[:8]}...`{cwd_info}\n"
+                f"下次消息将恢复该会话的上下文。")
 
         elif cmd == "/help":
             _reply(msg_id, HELP_TEXT)

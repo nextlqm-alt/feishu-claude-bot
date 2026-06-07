@@ -6,6 +6,7 @@ WebSocket 长连接模式，无需公网穿透。
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 
@@ -17,10 +18,17 @@ import bot
 import config
 import webui
 
+LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL),
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),  # 终端
+        logging.FileHandler(os.path.join(LOG_DIR, "bot.log"), encoding="utf-8"),  # 文件
+    ],
 )
 logger = logging.getLogger("main")
 
