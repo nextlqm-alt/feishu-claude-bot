@@ -87,12 +87,22 @@ async def run(message: str, session_id: str, is_new: bool,
             try:
                 if sys.platform == "win32":
                     # proc.kill() 只杀 cmd.exe，需 taskkill /T 杀整个进程树
-                    import subprocess as sp
-                    sp.run(
-                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                        capture_output=True,
-                    )
-                proc.kill()  # Linux: 直接 SIGKILL；Windows: taskkill 失败时的兜底
+                    # 用 async subprocess 避免阻塞 event loop
+                    killer = None
+                    try:
+                        killer = await asyncio.create_subprocess_exec(
+                            "taskkill", "/F", "/T", "/PID", str(proc.pid),
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        await asyncio.wait_for(killer.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        logger.warning("taskkill timed out, killing taskkill itself")
+                        if killer:
+                            killer.kill()
+                    except Exception:
+                        pass
+                proc.kill()  # Linux: 直接 SIGKILL；Windows: taskkill 失败/超时时的兜底
             except Exception:
                 pass
         watcher = asyncio.create_task(_watch())
