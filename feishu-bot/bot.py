@@ -30,6 +30,7 @@ HELP_TEXT = """**📋 命令**
 • `/new` — 重置会话
 • `/sessions` — 列出所有会话
 • `/switch <id>` — 切换到指定会话
+• `/clear <id>` — 删除指定会话
 • `/status` — 查看状态"""
 
 
@@ -182,6 +183,21 @@ class FeishuBot:
             _reply(msg_id,
                 f"✅ 已切换到 `{matched_sid[:8]}...`{cwd_info}\n"
                 f"下次消息将恢复该会话的上下文。")
+
+        elif cmd.startswith("/clear "):
+            target = cmd.split(" ", 1)[1].strip()
+            ok, info = claude.delete_session(target)
+
+            if ok:
+                # 删的是当前 chat 的活跃会话 → 重置
+                sess = self.sessions.get(chat_id)
+                if sess and sess["session_id"] == info:
+                    self.sessions.pop(chat_id, None)
+                    _reply(msg_id, f"🗑 已删除 `{info[:8]}...`（当前会话已重置）")
+                else:
+                    _reply(msg_id, f"🗑 已删除 `{info[:8]}...`")
+            else:
+                _reply(msg_id, f"❌ {info}")
 
         elif cmd == "/help":
             _reply(msg_id, HELP_TEXT)

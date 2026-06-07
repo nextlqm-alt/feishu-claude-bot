@@ -161,6 +161,34 @@ def list_sessions() -> list[dict]:
     return results
 
 
+def delete_session(sid: str) -> tuple[bool, str]:
+    """删除指定会话的 JSONL 文件。
+
+    支持前缀匹配（如 "6f56bf21" 匹配 "6f56bf21-069b-...jsonl"）。
+    返回 (是否成功, 匹配到的完整 sid 或错误信息)。
+    """
+    matches = []
+    for proj_dir in glob.glob(os.path.join(SESSION_DIR, "*")):
+        for f in glob.glob(os.path.join(proj_dir, "*.jsonl")):
+            basename = os.path.basename(f)[:-6]  # 去掉 .jsonl
+            if basename == sid or basename.startswith(sid):
+                matches.append((f, basename))
+
+    if not matches:
+        return False, f"未找到匹配 `{sid}` 的会话"
+    if len(matches) > 1:
+        ids = ", ".join(f"`{m[1][:8]}`" for m in matches)
+        return False, f"匹配到多个会话: {ids}\n请使用更长的 ID 前缀"
+
+    filepath, full_sid = matches[0]
+    try:
+        os.remove(filepath)
+        logger.info(f"Deleted session {full_sid[:8]}... ({filepath})")
+        return True, full_sid
+    except OSError as e:
+        return False, f"删除失败: {e}"
+
+
 def _parse_session_meta(filepath: str) -> tuple[str, int, str]:
     """解析 session JSONL，返回 (首条用户消息, 对话轮次, 工作目录)"""
     title = ""
