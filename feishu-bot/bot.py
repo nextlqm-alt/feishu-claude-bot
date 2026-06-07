@@ -97,7 +97,7 @@ class FeishuBot:
         sess = self._get_sess(chat_id)
 
         if sess.get("running"):
-            _reply(msg_id, "⚠️ 上一个任务还在执行中，请稍候。")
+            await _reply(msg_id, "⚠️ 上一个任务还在执行中，请稍候。")
             return
 
         sess["running"] = True
@@ -126,11 +126,11 @@ class FeishuBot:
             if sess.pop("just_resumed", False):
                 prefix = f"📋 已恢复会话 `{new_sid[:8]}...` | 🔒{sess['perm_level']}\n\n"
 
-            _reply(msg_id, prefix + (result.strip() or "(无输出)") + footer)
+            await _reply(msg_id,prefix + (result.strip() or "(无输出)") + footer)
 
         except Exception as e:
             logger.exception(f"Error [{chat_id}]: {e}")
-            _reply(msg_id, f"❌ 出错了: {e}")
+            await _reply(msg_id,f"❌ 出错了: {e}")
         finally:
             sess["running"] = False
             sess.pop("cancel_evt", None)
@@ -139,14 +139,14 @@ class FeishuBot:
         if cmd == "/new":
             self.sessions.pop(chat_id, None)
             sess = self._get_sess(chat_id, force_new=True)
-            _reply(msg_id, f"✅ 新会话 `{sess['session_id'][:8]}...` | 🔒{sess['perm_level']}")
+            await _reply(msg_id,f"✅ 新会话 `{sess['session_id'][:8]}...` | 🔒{sess['perm_level']}")
 
         elif cmd in ("/safe", "/unsafe", "/full"):
             level = cmd[1:]  # "safe", "unsafe", "full"
             sess = self._get_sess(chat_id)
             sess["perm_level"] = level
             desc = {"safe": "只读+编辑", "unsafe": "允许 Bash", "full": "全部工具"}
-            _reply(msg_id, f"🔓 权限切换为 **{level}** ({desc.get(level, level)})")
+            await _reply(msg_id,f"🔓 权限切换为 **{level}** ({desc.get(level, level)})")
 
         elif cmd in ("/status", "/session"):
             sess = self.sessions.get(chat_id)
@@ -165,14 +165,14 @@ class FeishuBot:
                 ]
                 if title:
                     lines.append(f"标题: _{title}_")
-                _reply(msg_id, "\n".join(lines))
+                await _reply(msg_id, "\n".join(lines))
             else:
-                _reply(msg_id, "ℹ️ 无活跃会话")
+                await _reply(msg_id, "ℹ️ 无活跃会话")
 
         elif cmd == "/sessions":
             disk_sessions = claude.list_sessions()
             if not disk_sessions:
-                _reply(msg_id, "ℹ️ 磁盘上暂无 Claude Code 会话")
+                await _reply(msg_id, "ℹ️ 磁盘上暂无 Claude Code 会话")
                 return
 
             current_sid = self.sessions.get(chat_id, {}).get("session_id", "")
@@ -190,7 +190,7 @@ class FeishuBot:
                     f"#{s['turns']}轮 [{s['cwd']}]\n"
                     f"     _{s['title'][:60]}_"
                 )
-            _reply(msg_id, "\n".join(lines))
+            await _reply(msg_id, "\n".join(lines))
 
         elif cmd.startswith("/switch "):
             target = cmd.split(" ", 1)[1].strip()
@@ -212,7 +212,7 @@ class FeishuBot:
                         break
 
             if matched_sid is None:
-                _reply(msg_id, f"❌ 未找到匹配 `{target}` 的会话。用 `/sessions` 查看所有会话。")
+                await _reply(msg_id,f"❌ 未找到匹配 `{target}` 的会话。用 `/sessions` 查看所有会话。")
                 return
 
             # 创建/更新当前 chat 的会话，指向目标 session_id
@@ -224,7 +224,7 @@ class FeishuBot:
                 sess["cwd"] = matched_cwd
 
             cwd_info = f"\n📁 `{matched_cwd}`" if matched_cwd else ""
-            _reply(msg_id,
+            await _reply(msg_id,
                 f"✅ 已切换到 `{matched_sid[:8]}...`{cwd_info}\n"
                 f"下次消息将恢复该会话的上下文。")
 
@@ -237,34 +237,35 @@ class FeishuBot:
                 sess = self.sessions.get(chat_id)
                 if sess and sess["session_id"] == info:
                     self.sessions.pop(chat_id, None)
-                    _reply(msg_id, f"🗑 已删除 `{info[:8]}...`（当前会话已重置）")
+                    await _reply(msg_id,f"🗑 已删除 `{info[:8]}...`（当前会话已重置）")
                 else:
-                    _reply(msg_id, f"🗑 已删除 `{info[:8]}...`")
+                    await _reply(msg_id,f"🗑 已删除 `{info[:8]}...`")
             else:
-                _reply(msg_id, f"❌ {info}")
+                await _reply(msg_id,f"❌ {info}")
 
         elif cmd == "/cancel":
             sess = self.sessions.get(chat_id)
             if not sess or not sess.get("running"):
-                _reply(msg_id, "ℹ️ 当前没有运行中的任务")
+                await _reply(msg_id, "ℹ️ 当前没有运行中的任务")
                 return
             evt = sess.get("cancel_evt")
             if evt:
                 evt.set()
-                _reply(msg_id, "⏹ 已发送取消信号...")
+                await _reply(msg_id, "⏹ 已发送取消信号...")
             else:
-                _reply(msg_id, "⚠️ 无法取消（缺少进程引用）")
+                await _reply(msg_id, "⚠️ 无法取消（缺少进程引用）")
 
         elif cmd == "/help":
-            _reply(msg_id, HELP_TEXT)
+            await _reply(msg_id,HELP_TEXT)
 
         else:
-            _reply(msg_id, f"未知命令 `{cmd}`\n\n{HELP_TEXT}")
+            await _reply(msg_id,f"未知命令 `{cmd}`\n\n{HELP_TEXT}")
 
 
-# ---- 同步飞书 API ----
+# ---- 飞书 API（异步非阻塞） ----
 
-def _reply(msg_id: str, text: str):
+def _reply_sync(msg_id: str, text: str):
+    """同步发送飞书回复（在 executor 线程中调用）"""
     try:
         client = (
             LarkClient.builder()
@@ -284,6 +285,12 @@ def _reply(msg_id: str, text: str):
             logger.error(f"Reply failed: {resp.code} {resp.msg}")
     except Exception as e:
         logger.exception(f"Reply error: {e}")
+
+
+async def _reply(msg_id: str, text: str):
+    """异步发送飞书回复——HTTP 调用在 executor 线程执行，不阻塞 event loop"""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _reply_sync, msg_id, text)
 
 
 def _extract_text(content: str, msg_type: str) -> str:
