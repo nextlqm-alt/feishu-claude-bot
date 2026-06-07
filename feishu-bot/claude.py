@@ -42,10 +42,12 @@ PERM_PRESETS = {
 
 async def run(message: str, session_id: str, is_new: bool,
              perm_level: str = "unsafe", chat_id: str = "",
-             cwd: str = None) -> tuple[str, str]:
+             cwd: str = None,
+             cancel_evt: asyncio.Event = None) -> tuple[str, str]:
     """执行 Claude Code，返回 (响应文本, session_id)。
 
     cwd: 会话所属的工作目录。None 表示使用当前目录。
+    cancel_evt: 设置此事件可取消正在运行的任务（类似按 Esc）。
     """
     sid = session_id or str(uuid.uuid4())
     preset = PERM_PRESETS.get(perm_level, PERM_PRESETS["unsafe"])
@@ -77,55 +79,74 @@ async def run(message: str, session_id: str, is_new: bool,
         cwd=work_dir,
     )
 
-    text_parts = []
-    async for line in proc.stdout:
-        try:
-            ev = json.loads(line.decode().strip())
-        except json.JSONDecodeError:
-            continue
+    # 取消监听：外部设置 cancel_evt → 杀掉子进程
+    watcher = None
+    if cancel_evt:
+        async def _watch():
+            await cancel_evt.wait()
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        watcher = asyncio.create_task(_watch())
 
-        t = ev.get("type", "")
+    try:
+        text_parts = []
+        async for line in proc.stdout:
+            try:
+                ev = json.loads(line.decode().strip())
+            except json.JSONDecodeError:
+                continue
 
-        if t == "assistant":
-            for c in ev.get("message", {}).get("content", []):
-                ct = c.get("type", "")
-                if ct == "thinking":
-                    thinking = c.get("thinking", "")[:120]
-                    if thinking.strip():
-                        log.add(chat_id, "💭", thinking)
-                        logger.debug(f"[{chat_id[-8:]}] 💭 {thinking}")
-                elif ct == "tool_use":
-                    name = c.get("name", "?")
-                    inp = json.dumps(c.get("input", {}), ensure_ascii=False)[:200]
-                    log.add(chat_id, "🔧", f"{name}: {inp}", {"tool": name, "input": c.get("input", {})})
-                    logger.info(f"[{chat_id[-8:]}] 🔧 {name}: {inp}")
-                elif ct == "text":
-                    text_parts.append(c.get("text", ""))
+            t = ev.get("type", "")
 
-        elif t == "user":
-            for c in ev.get("message", {}).get("content", []):
-                result = str(c.get("content", ""))[:300]
-                is_err = c.get("is_error", False)
-                tag = "❌" if is_err else "✅"
-                log.add(chat_id, tag, result)
-                if is_err:
-                    logger.warning(f"[{chat_id[-8:]}] ❌ {result}")
+            if t == "assistant":
+                for c in ev.get("message", {}).get("content", []):
+                    ct = c.get("type", "")
+                    if ct == "thinking":
+                        thinking = c.get("thinking", "")[:120]
+                        if thinking.strip():
+                            log.add(chat_id, "💭", thinking)
+                            logger.debug(f"[{chat_id[-8:]}] 💭 {thinking}")
+                    elif ct == "tool_use":
+                        name = c.get("name", "?")
+                        inp = json.dumps(c.get("input", {}), ensure_ascii=False)[:200]
+                        log.add(chat_id, "🔧", f"{name}: {inp}", {"tool": name, "input": c.get("input", {})})
+                        logger.info(f"[{chat_id[-8:]}] 🔧 {name}: {inp}")
+                    elif ct == "text":
+                        text_parts.append(c.get("text", ""))
 
-        elif t == "result":
-            final = ev.get("result", "")
-            if final:
-                text_parts.append(final)
-                log.add(chat_id, "🤖", final[:500])
+            elif t == "user":
+                for c in ev.get("message", {}).get("content", []):
+                    result = str(c.get("content", ""))[:300]
+                    is_err = c.get("is_error", False)
+                    tag = "❌" if is_err else "✅"
+                    log.add(chat_id, tag, result)
+                    if is_err:
+                        logger.warning(f"[{chat_id[-8:]}] ❌ {result}")
 
-    await proc.wait()
-    stderr = (await proc.stderr.read()).decode("utf-8", errors="replace")
+            elif t == "result":
+                final = ev.get("result", "")
+                if final:
+                    text_parts.append(final)
+                    log.add(chat_id, "🤖", final[:500])
 
-    if proc.returncode != 0:
-        err = stderr[:300] or "unknown error"
-        logger.error(f"Claude exited {proc.returncode}: {err}")
-        return f"❌ 执行失败: {err}", sid
+        await proc.wait()
+        stderr = (await proc.stderr.read()).decode("utf-8", errors="replace")
 
-    return "".join(text_parts), sid
+        if cancel_evt and cancel_evt.is_set():
+            logger.info(f"Task cancelled for {sid[:8]}...")
+            return "⏹ 任务已取消", sid
+
+        if proc.returncode != 0:
+            err = stderr[:300] or "unknown error"
+            logger.error(f"Claude exited {proc.returncode}: {err}")
+            return f"❌ 执行失败: {err}", sid
+
+        return "".join(text_parts), sid
+    finally:
+        if watcher:
+            watcher.cancel()
 
 
 def list_sessions() -> list[dict]:

@@ -32,6 +32,7 @@ HELP_TEXT = """**📋 命令**
 • `/sessions` — 列出所有会话
 • `/switch <id>` — 切换到指定会话
 • `/clear <id>` — 删除指定会话
+• `/cancel` — 取消当前运行中的任务
 • `/status` — 查看状态
 • `/session` — 查看当前会话"""
 
@@ -104,11 +105,14 @@ class FeishuBot:
 
         log.add(chat_id, "👤", text)
 
+        cancel_evt = asyncio.Event()
+        sess["cancel_evt"] = cancel_evt
+
         try:
             result, new_sid = await claude.run(
                 text, sess["session_id"], sess["is_first"],
                 perm_level=sess["perm_level"], chat_id=chat_id,
-                cwd=sess.get("cwd"),
+                cwd=sess.get("cwd"), cancel_evt=cancel_evt,
             )
             sess["session_id"] = new_sid
             sess["is_first"] = False
@@ -129,6 +133,7 @@ class FeishuBot:
             _reply(msg_id, f"❌ 出错了: {e}")
         finally:
             sess["running"] = False
+            sess.pop("cancel_evt", None)
 
     async def _command(self, chat_id: str, msg_id: str, cmd: str):
         if cmd == "/new":
@@ -237,6 +242,18 @@ class FeishuBot:
                     _reply(msg_id, f"🗑 已删除 `{info[:8]}...`")
             else:
                 _reply(msg_id, f"❌ {info}")
+
+        elif cmd == "/cancel":
+            sess = self.sessions.get(chat_id)
+            if not sess or not sess.get("running"):
+                _reply(msg_id, "ℹ️ 当前没有运行中的任务")
+                return
+            evt = sess.get("cancel_evt")
+            if evt:
+                evt.set()
+                _reply(msg_id, "⏹ 已发送取消信号...")
+            else:
+                _reply(msg_id, "⚠️ 无法取消（缺少进程引用）")
 
         elif cmd == "/help":
             _reply(msg_id, HELP_TEXT)
