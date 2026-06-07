@@ -1,0 +1,8 @@
+feishu-bot/venv/
+feishu-bot/.env
+feishu-bot/logs/
+feishu-bot/__pycache__/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
