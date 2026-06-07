@@ -50,36 +50,41 @@ python main.py
 
 ## 命令参考
 
-| 命令 | 作用 |
-|------|------|
-| 直接发消息 | 与 Claude Code 对话 |
-| `/safe` | 安全模式：只读 + 文件编辑，禁止 Bash |
-| `/unsafe` | 标准模式（**默认**）：允许 Bash |
-| `/full` | 完整模式：允许所有工具 |
-| `/new` | 重置当前会话，清空上下文 |
-| `/sessions` | 列出本机**所有** Claude Code 会话（磁盘扫描） |
-| `/switch <id>` | 切换到指定会话（支持跨项目目录） |
-| `/status` | 查看当前会话状态 |
-| `/help` | 显示帮助 |
+| 命令 | 别名 | 作用 |
+|------|------|------|
+| 直接发消息 | — | 与 Claude Code 对话 |
+| `/h` | `/help` | 显示帮助菜单 |
+| `/s` | `/sessions` | 列出所有会话（带编号） |
+| `/ss` | `/status` `/session` | 当前会话详情（含标题） |
+| `/n` | `/new` | 重置会话，新建上下文 |
+| `/sw #` | `/switch #` | 按编号切换会话（如 `/sw 2`） |
+| `/sw <id>` | `/switch <id>` | 按 ID 前缀或 short_id 切换 |
+| `/clr #` | `/clear #` | 按编号或 ID 删除会话 |
+| `/c` | `/cancel` | 取消当前运行中的任务 |
+| `/safe` | — | 安全模式：只读 + 编辑，禁止 Bash |
+| `/unsafe` | — | 标准模式（**默认**）：允许 Bash |
+| `/full` | — | 完整模式：允许所有工具 |
 
 ### 会话管理
 
-`/sessions` 扫描 `~/.claude/projects/` 下所有 Claude Code 会话，显示：
+新连接自动恢复磁盘上最近一次会话，无需手动切换。`/s` 列出带编号的会话列表：
 
 ```
-📋 所有 Claude Code 会话 (20 个)
+📋 会话列表 (4 个)
 
-   cf5bb7a7 5m 1923KB #408轮 [/root/桌面/feishu]
-      # 基础开发 /plugin install code-review@claude-plugins-official
-🔗 5afae8e9 31m 126KB #32轮 [/root/桌面/feishu/feishu-bot]
-     列出之前的会话
-  f85117c7 2d 256KB #50轮 [/root/桌面]
-     帮我写一个 Nginx 配置
+**1** 🟢 6f56bf21  3m  12KB  #99轮  [D:/feishu]
+     hello
+**2** 🔗 88cd3a80  1h  45KB  #4轮   [D:/feishu/bot]
+     修复 arp 检测
+
+/s _    /sw #    /clr #
 ```
 
-- `🔗` 表示已关联到当前飞书群聊
-- `/switch f85117c7` 可以恢复 2 天前在 `/root/桌面` 目录下的会话
-- 切换后自动定位到原会话的工作目录，保证 `--resume` 正确
+- `🟢` 当前会话，`🔗` 其他飞书聊天使用中
+- `/sw 2` 即可切换到第 2 个会话，无需复制粘贴 UUID
+- `/clr 3` 删除第 3 个会话
+- `/c` 随时取消运行中的 Claude 任务（类似按 Esc）
+- `/n` 强制创建全新会话
 
 ## 日志
 
@@ -123,9 +128,9 @@ CLAUDE_FULL_MODE=acceptEdits
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `main.py` | 65 | 入口：启动 WS 连接 + Web 面板 |
-| `bot.py` | 165 | 飞书消息路由 + 会话管理 + 命令 |
-| `claude.py` | 90 | Claude CLI 调用，stream-json 解析 |
-| `webui.py` | 105 | 本地监控面板，SSE 实时推送 |
-| `log.py` | 15 | 共享事件日志 |
-| `config.py` | 10 | 环境变量读取 |
+| `main.py` | 73 | 入口：启动 WS 连接 + Web 面板 |
+| `bot.py` | 310 | 飞书消息路由 + 会话管理 + 命令 |
+| `claude.py` | 284 | Claude CLI 调用 + stream-json 解析 + 取消机制 |
+| `webui.py` | 149 | 本地监控面板，SSE 实时推送 |
+| `log.py` | 17 | 共享事件日志 |
+| `config.py` | 13 | 环境变量读取 |
