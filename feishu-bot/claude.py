@@ -85,7 +85,14 @@ async def run(message: str, session_id: str, is_new: bool,
         async def _watch():
             await cancel_evt.wait()
             try:
-                proc.kill()
+                if sys.platform == "win32":
+                    # proc.kill() 只杀 cmd.exe，需 taskkill /T 杀整个进程树
+                    import subprocess as sp
+                    sp.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        capture_output=True,
+                    )
+                proc.kill()  # Linux: 直接 SIGKILL；Windows: taskkill 失败时的兜底
             except Exception:
                 pass
         watcher = asyncio.create_task(_watch())
