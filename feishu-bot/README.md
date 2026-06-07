@@ -27,14 +27,16 @@
 
 ### 2. 安装启动
 
-```bash
+> **注意：** 当前版本仅在 Windows 下测试通过。
+
+```powershell
 cd feishu-bot
-cp .env.example .env
+copy .env.example .env
 # 编辑 .env，填入 FEISHU_APP_ID 和 FEISHU_APP_SECRET
 
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+python -m venv venv
+venv\Scripts\activate
+python -m pip install -r requirements.txt
 python main.py
 ```
 
