@@ -54,6 +54,7 @@ class FeishuBot:
                         "is_first": False,  # 恢复已有会话
                         "perm_level": "unsafe",
                         "cwd": cwd,
+                        "just_resumed": True,  # 首次回复时告知用户
                     }
                     return self.sessions[chat_id]
             # 无磁盘会话或强制新建
@@ -114,7 +115,13 @@ class FeishuBot:
 
             elapsed = time.time() - start
             footer = f"\n\n---\n⏱ {elapsed:.1f}s | #{sess['turn']} | 🔒{sess['perm_level']}"
-            _reply(msg_id, result.strip() or "(无输出)" + footer)
+
+            # 首次连接且自动恢复了磁盘会话 → 告知用户
+            prefix = ""
+            if sess.pop("just_resumed", False):
+                prefix = f"📋 已恢复会话 `{new_sid[:8]}...` | 🔒{sess['perm_level']}\n\n"
+
+            _reply(msg_id, prefix + (result.strip() or "(无输出)") + footer)
 
         except Exception as e:
             logger.exception(f"Error [{chat_id}]: {e}")
@@ -153,12 +160,18 @@ class FeishuBot:
                 _reply(msg_id, "ℹ️ 磁盘上暂无 Claude Code 会话")
                 return
 
+            current_sid = self.sessions.get(chat_id, {}).get("session_id", "")
             tracked_sids = {s["session_id"] for s in self.sessions.values()}
             lines = [f"**📋 所有 Claude Code 会话 ({len(disk_sessions)} 个)**\n"]
             for s in disk_sessions:
-                tracked = "🔗" if s["sid"] in tracked_sids else "  "
+                if s["sid"] == current_sid:
+                    marker = "🟢"  # 当前 chat 的会话
+                elif s["sid"] in tracked_sids:
+                    marker = "🔗"  # 其他 chat 在使用
+                else:
+                    marker = "  "
                 lines.append(
-                    f"{tracked} `{s['short_id']}` {s['age']} {s['size_kb']}KB "
+                    f"{marker} `{s['short_id']}` {s['age']} {s['size_kb']}KB "
                     f"#{s['turns']}轮 [{s['cwd']}]\n"
                     f"     _{s['title'][:60]}_"
                 )
