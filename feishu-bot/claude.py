@@ -167,7 +167,7 @@ def _parse_session_meta(filepath: str) -> tuple[str, int, str]:
     turns = 0
     cwd = ""
     try:
-        with open(filepath) as fh:
+        with open(filepath, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
