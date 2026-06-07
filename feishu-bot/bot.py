@@ -25,16 +25,15 @@ import log
 logger = logging.getLogger(__name__)
 
 HELP_TEXT = """**📋 命令**
-• `/safe` — 安全模式（只读+编辑，不允许 Bash）
-• `/unsafe` — 标准模式（允许 Bash，**默认**）
-• `/full` — 完整模式（允许所有工具）
-• `/new` — 重置会话
-• `/sessions` — 列出所有会话
-• `/switch <id>` — 切换到指定会话
-• `/clear <id>` — 删除指定会话
-• `/cancel` — 取消当前运行中的任务
-• `/status` — 查看状态
-• `/session` — 查看当前会话"""
+• `/s` — 会话列表（带编号）
+• `/ss` — 当前会话
+• `/n` — 新会话
+• `/sw <#|id>` — 切换，如 `/sw 2`
+• `/clr <#|id>` — 删除，如 `/clr 3`
+• `/c` — 取消当前任务
+• `/safe` `/unsafe` `/full` — 权限
+• `/h` — 帮助
+也可用完整命令: `/sessions` `/switch` `/clear` `/cancel` `/new` `/status` `/help`"""
 
 
 class FeishuBot:
@@ -135,8 +134,32 @@ class FeishuBot:
             sess["running"] = False
             sess.pop("cancel_evt", None)
 
+    def _switch_sess(self, chat_id: str, sid: str, cwd: str = None):
+        """将当前 chat 切换到指定 sid"""
+        sess = self._get_sess(chat_id)
+        sess["session_id"] = sid
+        sess["is_first"] = False
+        sess["turn"] = 0
+        if cwd:
+            sess["cwd"] = cwd
+
+    def _resolve_sess(self, target: str) -> tuple:
+        """按编号或 ID 查找会话，返回 (sid, cwd)。未找到返回 (None, None)。"""
+        disks = claude.list_sessions()
+        # 数字 → 按列表编号（1-based）
+        if target.isdigit():
+            idx = int(target) - 1
+            if 0 <= idx < len(disks):
+                return disks[idx]["sid"], disks[idx]["cwd"]
+            return None, None
+        # 字符串 → 按 ID 前缀或 short_id 匹配
+        for s in disks:
+            if s["sid"].startswith(target) or s["short_id"] == target:
+                return s["sid"], s["cwd"]
+        return None, None
+
     async def _command(self, chat_id: str, msg_id: str, cmd: str):
-        if cmd == "/new":
+        if cmd in ("/new", "/n"):
             self.sessions.pop(chat_id, None)
             sess = self._get_sess(chat_id, force_new=True)
             await _reply(msg_id,f"✅ 新会话 `{sess['session_id'][:8]}...` | 🔒{sess['perm_level']}")
@@ -148,7 +171,7 @@ class FeishuBot:
             desc = {"safe": "只读+编辑", "unsafe": "允许 Bash", "full": "全部工具"}
             await _reply(msg_id,f"🔓 权限切换为 **{level}** ({desc.get(level, level)})")
 
-        elif cmd in ("/status", "/session"):
+        elif cmd in ("/status", "/session", "/ss"):
             sess = self.sessions.get(chat_id)
             if sess:
                 # 从磁盘查找当前会话的标题
@@ -169,7 +192,7 @@ class FeishuBot:
             else:
                 await _reply(msg_id, "ℹ️ 无活跃会话")
 
-        elif cmd == "/sessions":
+        elif cmd in ("/sessions", "/s"):
             disk_sessions = claude.list_sessions()
             if not disk_sessions:
                 await _reply(msg_id, "ℹ️ 磁盘上暂无 Claude Code 会话")
@@ -177,73 +200,57 @@ class FeishuBot:
 
             current_sid = self.sessions.get(chat_id, {}).get("session_id", "")
             tracked_sids = {s["session_id"] for s in self.sessions.values()}
-            lines = [f"**📋 所有 Claude Code 会话 ({len(disk_sessions)} 个)**\n"]
-            for s in disk_sessions:
+            lines = [f"**📋 会话列表 ({len(disk_sessions)} 个)**\n"]
+            for i, s in enumerate(disk_sessions, 1):
                 if s["sid"] == current_sid:
-                    marker = "🟢"  # 当前 chat 的会话
+                    marker = "🟢"
                 elif s["sid"] in tracked_sids:
-                    marker = "🔗"  # 其他 chat 在使用
+                    marker = "🔗"
                 else:
                     marker = "  "
                 lines.append(
-                    f"{marker} `{s['short_id']}` {s['age']} {s['size_kb']}KB "
+                    f"**{i}** {marker} `{s['short_id']}` {s['age']} {s['size_kb']}KB "
                     f"#{s['turns']}轮 [{s['cwd']}]\n"
                     f"     _{s['title'][:60]}_"
                 )
+            lines.append(f"\n/s _    /sw #    /clr #")
             await _reply(msg_id, "\n".join(lines))
 
-        elif cmd.startswith("/switch "):
+        elif cmd.startswith("/switch ") or cmd.startswith("/sw "):
             target = cmd.split(" ", 1)[1].strip()
-            matched_sid = None
-
-            # 1. 先查内存中的活跃会话
-            for cid, s in self.sessions.items():
-                if cid.endswith(target):
-                    matched_sid = s["session_id"]
-                    break
-
-            # 2. 再查磁盘上的所有会话
-            matched_cwd = None
-            if matched_sid is None:
-                for s in claude.list_sessions():
-                    if s["sid"].startswith(target) or s["short_id"] == target:
-                        matched_sid = s["sid"]
-                        matched_cwd = s["cwd"]
-                        break
+            matched_sid, matched_cwd = self._resolve_sess(target)
 
             if matched_sid is None:
-                await _reply(msg_id,f"❌ 未找到匹配 `{target}` 的会话。用 `/sessions` 查看所有会话。")
+                await _reply(msg_id, f"❌ 未找到匹配 `{target}` 的会话。用 `/s` 查看列表。")
                 return
 
-            # 创建/更新当前 chat 的会话，指向目标 session_id
-            sess = self._get_sess(chat_id)
-            sess["session_id"] = matched_sid
-            sess["is_first"] = False
-            sess["turn"] = 0
-            if matched_cwd:
-                sess["cwd"] = matched_cwd
-
+            self._switch_sess(chat_id, matched_sid, matched_cwd)
             cwd_info = f"\n📁 `{matched_cwd}`" if matched_cwd else ""
             await _reply(msg_id,
                 f"✅ 已切换到 `{matched_sid[:8]}...`{cwd_info}\n"
                 f"下次消息将恢复该会话的上下文。")
 
-        elif cmd.startswith("/clear "):
+        elif cmd.startswith("/clear ") or cmd.startswith("/clr "):
             target = cmd.split(" ", 1)[1].strip()
-            ok, info = claude.delete_session(target)
+            matched_sid, _ = self._resolve_sess(target)
+            if matched_sid is None:
+                await _reply(msg_id, f"❌ 未找到匹配 `{target}` 的会话。用 `/s` 查看列表。")
+                return
+
+            ok, info = claude.delete_session(matched_sid)
 
             if ok:
                 # 删的是当前 chat 的活跃会话 → 重置
                 sess = self.sessions.get(chat_id)
                 if sess and sess["session_id"] == info:
                     self.sessions.pop(chat_id, None)
-                    await _reply(msg_id,f"🗑 已删除 `{info[:8]}...`（当前会话已重置）")
+                    await _reply(msg_id, f"🗑 已删除 `{info[:8]}...`（当前会话已重置）")
                 else:
-                    await _reply(msg_id,f"🗑 已删除 `{info[:8]}...`")
+                    await _reply(msg_id, f"🗑 已删除 `{info[:8]}...`")
             else:
-                await _reply(msg_id,f"❌ {info}")
+                await _reply(msg_id, f"❌ {info}")
 
-        elif cmd == "/cancel":
+        elif cmd in ("/cancel", "/c"):
             sess = self.sessions.get(chat_id)
             if not sess or not sess.get("running"):
                 await _reply(msg_id, "ℹ️ 当前没有运行中的任务")
@@ -255,7 +262,7 @@ class FeishuBot:
             else:
                 await _reply(msg_id, "⚠️ 无法取消（缺少进程引用）")
 
-        elif cmd == "/help":
+        elif cmd in ("/help", "/h"):
             await _reply(msg_id,HELP_TEXT)
 
         else:
