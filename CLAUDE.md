@@ -84,10 +84,31 @@ main.py ──启动──▶ WS Client (飞书长连接)  +  WebUI (http.server
 
 1. **事件处理器必须同步**：`lark_oapi` 的 `EventDispatcherHandler` 同步调用回调。`handle_message` 内部用 `loop.create_task()` 调度异步任务。
 2. **单线程单 loop**：没有 FastAPI/uvicorn。`WsClient.start()` 是同步阻塞方法，内部管理自己的 event loop。WebUI 在独立线程运行。
-3. **飞书 API 是同步的**：`LarkClient` 底层用 `requests` 库，线程安全，async 函数中直接调用即可。
+3. **飞书 API 调用必须异步化**：`LarkClient` 底层用 `requests`（同步阻塞）。`_reply()` 封装为 `async def`，HTTP 调用通过 `loop.run_in_executor()` 丢到线程池执行，避免阻塞事件循环。**新代码调用飞书 API 一律用 `await _reply()`**。
 4. **root 限制**：`--permission-mode bypassPermissions` 在 root 下被禁止，只能用 `acceptEdits`。
+5. **取消机制**：`claude.run()` 接受 `cancel_evt: asyncio.Event`。设置此事件会启动后台 watcher 杀掉 Claude 子进程。Windows 上用 `taskkill /T` 杀进程树，Linux 用 `proc.kill()`。**taskkill 也必须用 `asyncio.create_subprocess_exec`**，严禁同步 `subprocess.run` 阻塞事件循环。
 
 ## 开发规范
+
+### 命令系统
+
+| 命令 | 别名 | 作用 |
+|---|---|---|
+| `/h` | `/help` | 帮助菜单 |
+| `/s` | `/sessions` | 会话列表（**带 1-based 编号**） |
+| `/ss` | `/status` `/session` | 当前会话详情（含标题） |
+| `/n` | `/new` | 新建会话 |
+| `/sw #` | `/switch #` | 按编号切换（如 `/sw 2`） |
+| `/sw <id>` | `/switch <id>` | 按 ID 前缀或 short_id 切换 |
+| `/clr #` | `/clear #` | 按编号或 ID 删除会话 |
+| `/c` | `/cancel` | 取消当前运行中任务 |
+| `/safe` `/unsafe` `/full` | — | 权限切换 |
+
+`/sw #` 和 `/clr #` 的编号解析由 `FeishuBot._resolve_sess(target)` 完成：纯数字按 `list_sessions()` 索引（1-based），字符串按 ID 前缀或 short_id 匹配。
+
+### 会话自动恢复
+
+新连接（chat_id 无内存会话）时，`_get_sess()` 先调用 `claude.list_sessions()` 查找磁盘最近会话（按 mtime 降序），存在则自动 `--resume`。`/n` 用 `force_new=True` 跳过此逻辑强制创建新会话。首次恢复时 `just_resumed` 标志触发前缀提示。
 
 ### 加新功能
 1. `bot.py` 是唯一消息入口，新功能加在 `_chat()` 或 `_command()` 中
@@ -106,5 +127,7 @@ main.py ──启动──▶ WS Client (飞书长连接)  +  WebUI (http.server
 
 ### 不要做的事
 - 不要加 FastAPI/Flask——WebUI 用 stdlib 足够
-- 不要在 bot.py 的 handler 方法中写 async——SDK 同步调用
+- 不要在 bot.py 的 handler 方法中写 async——SDK 同步回调
 - 不要加 session_manager 类——一个 `dict[str,dict]` 足够
+- **不要在 async 函数中同步调用 `_reply()`**——必须 `await _reply()`，否则阻塞事件循环
+- **不要在 async 函数中用 `subprocess.run`**——用 `asyncio.create_subprocess_exec`，否则阻塞事件循环
