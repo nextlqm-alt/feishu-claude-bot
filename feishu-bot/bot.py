@@ -7,6 +7,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 
@@ -39,14 +40,29 @@ class FeishuBot:
         # chat_id → {session_id, turn, is_first, running, perm_level}
         self.sessions: dict[str, dict] = {}
 
-    def _get_sess(self, chat_id: str) -> dict:
+    def _get_sess(self, chat_id: str, force_new: bool = False) -> dict:
         if chat_id not in self.sessions:
+            if not force_new:
+                # 尝试复用磁盘上最近一次会话，避免每次连接都创建新会话
+                recent = claude.list_sessions()
+                if recent:
+                    newest = recent[0]  # 已按 mtime 降序排列
+                    cwd = newest["cwd"] if newest["cwd"] and os.path.isdir(newest["cwd"]) else None
+                    self.sessions[chat_id] = {
+                        "session_id": newest["sid"],
+                        "turn": 0,
+                        "is_first": False,  # 恢复已有会话
+                        "perm_level": "unsafe",
+                        "cwd": cwd,
+                    }
+                    return self.sessions[chat_id]
+            # 无磁盘会话或强制新建
             self.sessions[chat_id] = {
                 "session_id": str(uuid.uuid4()),
                 "turn": 0,
                 "is_first": True,
                 "perm_level": "unsafe",
-                "cwd": None,  # None = 使用当前目录
+                "cwd": None,
             }
         return self.sessions[chat_id]
 
@@ -109,7 +125,7 @@ class FeishuBot:
     async def _command(self, chat_id: str, msg_id: str, cmd: str):
         if cmd == "/new":
             self.sessions.pop(chat_id, None)
-            sess = self._get_sess(chat_id)
+            sess = self._get_sess(chat_id, force_new=True)
             _reply(msg_id, f"✅ 新会话 `{sess['session_id'][:8]}...` | 🔒{sess['perm_level']}")
 
         elif cmd in ("/safe", "/unsafe", "/full"):
