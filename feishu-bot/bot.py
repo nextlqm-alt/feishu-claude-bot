@@ -32,7 +32,8 @@ HELP_TEXT = """**📋 命令**
 • `/sessions` — 列出所有会话
 • `/switch <id>` — 切换到指定会话
 • `/clear <id>` — 删除指定会话
-• `/status` — 查看状态"""
+• `/status` — 查看状态
+• `/session` — 查看当前会话"""
 
 
 class FeishuBot:
@@ -142,15 +143,24 @@ class FeishuBot:
             desc = {"safe": "只读+编辑", "unsafe": "允许 Bash", "full": "全部工具"}
             _reply(msg_id, f"🔓 权限切换为 **{level}** ({desc.get(level, level)})")
 
-        elif cmd == "/status":
+        elif cmd in ("/status", "/session"):
             sess = self.sessions.get(chat_id)
             if sess:
-                s = "🟢 运行中" if sess.get("running") else "⏸ 空闲"
-                _reply(msg_id,
-                    f"**状态**: {s}\n"
-                    f"**轮次**: {sess['turn']}\n"
-                    f"**权限**: 🔒{sess['perm_level']}\n"
-                    f"**会话**: `{sess['session_id'][:16]}...`")
+                # 从磁盘查找当前会话的标题
+                title = ""
+                for s in claude.list_sessions():
+                    if s["sid"] == sess["session_id"]:
+                        title = s["title"]
+                        break
+
+                state = "🟢 运行中" if sess.get("running") else "⏸ 空闲"
+                lines = [
+                    f"**{state}** | 🔒{sess['perm_level']} | #{sess['turn']}轮",
+                    f"会话: `{sess['session_id'][:8]}...`",
+                ]
+                if title:
+                    lines.append(f"标题: _{title}_")
+                _reply(msg_id, "\n".join(lines))
             else:
                 _reply(msg_id, "ℹ️ 无活跃会话")
 
