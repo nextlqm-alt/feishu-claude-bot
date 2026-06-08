@@ -17,10 +17,55 @@
 
 1. 打开 [飞书开发者后台](https://open.feishu.cn/app)，创建**企业自建应用**
 2. **添加能力** → 机器人
-3. **权限管理** → 添加以下权限：
-   - `im:message` — 接收和发送消息
-   - `im:message:read` — 读取消息内容
-   - `im:chat` — 获取群聊信息
+3. **权限管理** → 导入如下权限：
+
+```
+  {
+  "scopes": {
+    "tenant": [
+      "application:application:self_manage",
+      "application:bot.basic_info:read",
+      "application:bot.menu:write",
+      "cardkit:card:read",
+      "cardkit:card:write",
+      "contact:contact.base:readonly",
+      "docs:document.comment:create",
+      "docs:document.comment:delete",
+      "docs:document.comment:read",
+      "docs:document.comment:update",
+      "docs:document.comment:write_only",
+      "docx:document.block:convert",
+      "docx:document:create",
+      "docx:document:readonly",
+      "docx:document:write_only",
+      "drive:drive.metadata:readonly",
+      "im:chat.members:bot_access",
+      "im:chat.members:read",
+      "im:chat:create",
+      "im:chat:read",
+      "im:chat:update",
+      "im:message.group_at_msg.include_bot:readonly",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:message.pins:read",
+      "im:message.pins:write_only",
+      "im:message.reactions:read",
+      "im:message.reactions:write_only",
+      "im:message:readonly",
+      "im:message:send_as_bot",
+      "im:message:send_multi_users",
+      "im:message:send_sys_msg",
+      "im:message:update",
+      "im:resource",
+      "wiki:node:read"
+    ],
+    "user": [
+      "offline_access"
+    ]
+  }
+}  
+```
+
 4. **事件订阅** → 订阅 `im.message.receive_v1`（WebSocket 模式无需配置回调 URL）
 5. **版本管理** → 创建版本并发布（仅应用管理员可见即可）
 6. **凭证与基础信息** → 复制 App ID 和 App Secret
