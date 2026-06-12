@@ -40,6 +40,22 @@ PERM_PRESETS = {
 }
 
 
+async def _iter_lines(stream: asyncio.StreamReader,
+                     chunk_size: int = 65536):
+    """按行异步迭代，支持超过 64KB 默认限制的长行。"""
+    buf = b""
+    while True:
+        chunk = await stream.read(chunk_size)
+        if not chunk:
+            if buf:
+                yield buf
+            return
+        buf += chunk
+        *lines, buf = buf.split(b"\n")
+        for line in lines:
+            yield line + b"\n"
+
+
 async def run(message: str, session_id: str, is_new: bool,
              perm_level: str = "unsafe", chat_id: str = "",
              cwd: str = None,
@@ -109,7 +125,7 @@ async def run(message: str, session_id: str, is_new: bool,
 
     try:
         text_parts = []
-        async for line in proc.stdout:
+        async for line in _iter_lines(proc.stdout):
             try:
                 ev = json.loads(line.decode().strip())
             except json.JSONDecodeError:
